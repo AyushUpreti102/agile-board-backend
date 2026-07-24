@@ -1,4 +1,16 @@
-import db from "./db/index.js";
+import db from "./config/db.js";
+import express from "express";
+import cors from "cors";
+import routes from "./routes/index.js";
+
+const app = express();
+app.use(cors()); // Allows all origins
+
+app.use(express.json());
+app.use("/api", routes);
+app.get("/", (req, res) => {
+  res.send("this is agile board backend");
+});
 
 async function testConnection() {
   try {
@@ -10,4 +22,7 @@ async function testConnection() {
   }
 }
 
-testConnection();
+app.listen(3000, () => {
+  console.log("listening to port", 3000);
+  testConnection();
+});
