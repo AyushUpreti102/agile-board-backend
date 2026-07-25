@@ -1,12 +1,21 @@
 import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
 import {
   getUserByEmail,
   createUser,
+  getRefreshToken,
+  saveRefreshToken,
+  deleteRefreshToken,
 } from "../repositories/loginRespository.js";
+import {
+  generateAccessToken,
+  generateRefreshToken,
+  hashToken,
+} from "../utils/tokens.js";
 import AppError from "../utils/appError.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "your_super_secret_key";
+const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || "access_secret_key";
+const JWT_REFRESH_SECRET =
+  process.env.JWT_REFRESH_SECRET || "refresh_secret_key";
 const SALT_ROUNDS = 10;
 
 export const handleRegister = async (payload) => {
@@ -45,16 +54,72 @@ export const handleLogin = async (payload) => {
     throw new AppError("Invalid email or password.", 401);
   }
 
-  const token = jwt.sign(
-    {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar,
-    },
-    JWT_SECRET,
-    { expiresIn: "1h" },
+  const accessToken = generateAccessToken(user);
+
+  const refreshToken = generateAccessToken(user);
+
+  const tokenHash = hashToken(refreshToken);
+
+  await saveRefreshToken(
+    user.id,
+    tokenHash,
+    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
   );
 
-  return { message: "Login successful", token };
+  return {
+    message: "Login successful",
+    accessToken,
+    refreshToken,
+  };
+};
+
+export const handleRefresh = async ({ refreshToken }) => {
+  if (!refreshToken) throw new AppError("Refresh token missing", 401);
+
+  let payload;
+
+  try {
+    payload = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
+  } catch {
+    throw new AppError("Invalid refresh token", 401);
+  }
+
+  const tokenHash = hashToken(refreshToken);
+
+  const saved = await getRefreshToken(tokenHash);
+
+  if (!saved) throw new AppError("Refresh token revoked", 401);
+
+  await deleteRefreshToken(tokenHash);
+
+  const newAccessToken = generateAccessToken(payload);
+
+  const newRefreshToken = generateRefreshToken(payload);
+
+  const newHash = hashToken(newRefreshToken);
+
+  await saveRefreshToken(
+    payload.id,
+    newHash,
+    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  );
+
+  return {
+    accessToken: newAccessToken,
+    refreshToken: newRefreshToken,
+  };
+};
+
+export const handleLogout = async ({ refreshToken }) => {
+  if (!refreshToken) {
+    throw new AppError("Refresh token is required", 400);
+  }
+
+  const hash = hashToken(refreshToken);
+
+  await deleteRefreshToken(hash);
+
+  return {
+    message: "Logged out successfully",
+  };
 };
